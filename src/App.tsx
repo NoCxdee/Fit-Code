@@ -4,8 +4,7 @@
    ================================================================ */
 
 import { useState, useEffect, useRef } from 'react';
-import { WorkspaceBar } from './components/layout/WorkspaceBar';
-import { SessionPanel } from './components/layout/SessionPanel';
+import { LeftSidebar } from './components/layout/LeftSidebar';
 import { TitleBar } from './components/layout/TitleBar';
 import { MainContent } from './components/layout/MainContent';
 import { FileDrawer } from './components/layout/FileDrawer';
@@ -16,8 +15,8 @@ import { WelcomeScreen } from './components/layout/WelcomeScreen';
 import { Loader } from './components/layout/Loader';
 import { DictationPopup } from './components/layout/DictationPopup';
 import { useAppState, useAppDispatch } from './stores/appStore';
-import { useTranslation } from './i18n';
-import { loadState, saveState, gitStatus, checkUpdate, writeFile } from './utils/ipc';
+import { loadState, saveState, gitStatus, checkUpdate, writeFile, checkDirectoryExists, resolveWorkspacePath } from './utils/ipc';
+import { open } from '@tauri-apps/plugin-dialog';
 import { generateId } from './utils/generateId';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { UnsavedChangesDialog } from './components/layout/UnsavedChangesDialog';
@@ -33,7 +32,95 @@ export function App() {
   const bypassCloseRef = useRef(false);
   const appWindow = getCurrentWindow();
 
-  const { lang } = useTranslation();
+  const [missingWorkspace, setMissingWorkspace] = useState<any>(null);
+
+  useEffect(() => {
+    const activeWorkspaceId = state.activeWorkspaceId;
+    const activeWorkspace = state.workspaces.find(w => w.id === activeWorkspaceId);
+    if (!activeWorkspace) {
+      setMissingWorkspace(null);
+      return;
+    }
+
+    let isSubscribed = true;
+    const wsId = activeWorkspace.id;
+    const wsPath = activeWorkspace.path;
+
+    async function checkWorkspace() {
+      const exists = await checkDirectoryExists(wsPath);
+      if (!isSubscribed) return;
+
+      if (!exists) {
+        // Try to auto-resolve first
+        try {
+          const resolved = await resolveWorkspacePath(wsPath);
+          if (!isSubscribed) return;
+          if (resolved) {
+            const [newPath, newName] = resolved;
+            if (newPath !== wsPath) {
+              dispatch({
+                type: 'RESOLVE_WORKSPACE_PATH',
+                payload: { id: wsId, path: newPath, name: newName }
+              });
+              return;
+            }
+          }
+        } catch (err) {
+          console.error('Failed to resolve workspace path:', err);
+        }
+
+        // If we couldn't resolve it, show the missing workspace dialog
+        setMissingWorkspace(activeWorkspace);
+      } else {
+        setMissingWorkspace(null);
+      }
+    }
+
+    checkWorkspace();
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [state.activeWorkspaceId, state.workspaces, dispatch]);
+
+  const handleRemoveMissingWorkspace = () => {
+    if (missingWorkspace) {
+      dispatch({ type: 'REMOVE_WORKSPACE', payload: missingWorkspace.id });
+      setMissingWorkspace(null);
+    }
+  };
+
+  const handleLocateMissingWorkspace = async () => {
+    if (!missingWorkspace) return;
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: 'Locate Workspace Folder',
+      });
+      if (selected && typeof selected === 'string') {
+        const name = selected.split(/[\\/]/).pop() || 'Workspace';
+        dispatch({
+          type: 'RESOLVE_WORKSPACE_PATH',
+          payload: { id: missingWorkspace.id, path: selected, name }
+        });
+        setMissingWorkspace(null);
+      }
+    } catch (error) {
+      console.error('Failed to open workspace directory:', error);
+    }
+  };
+
+  const handleCancelMissingWorkspace = () => {
+    if (!missingWorkspace) return;
+    const nextWorkspace = state.workspaces.find(w => w.id !== missingWorkspace.id);
+    if (nextWorkspace) {
+      dispatch({ type: 'SET_ACTIVE_WORKSPACE', payload: nextWorkspace.id });
+    } else {
+      dispatch({ type: 'REMOVE_WORKSPACE', payload: missingWorkspace.id });
+    }
+    setMissingWorkspace(null);
+  };
   const [isLeftSidebarRevealed, setIsLeftSidebarRevealed] = useState(false);
   const leftSidebarTimeoutRef = useRef<any>(null);
   const [isRightSidebarRevealed, setIsRightSidebarRevealed] = useState(false);
@@ -211,7 +298,7 @@ export function App() {
         try {
           const recentsRaw = localStorage.getItem('fit_recent_projects');
           const recents = recentsRaw ? JSON.parse(recentsRaw) : [];
-          const existingIndex = recents.findIndex((p: any) => p.path === activeWorkspace.path);
+          const existingIndex = recents.findIndex((p: any) => p.id === activeWorkspace.id || p.path === activeWorkspace.path);
           
           const newProject = {
             id: activeWorkspace.id,
@@ -456,19 +543,23 @@ export function App() {
 
       {/* Main Body */}
       <div className="app-body">
-        {/* Left Sidebar Container (Workspace Bar + Session Panel) */}
-        <div 
-          className={[
-            "left-sidebar-container",
-            state.autoHideSidebar ? "left-sidebar-container--auto-hide" : "",
-            (state.autoHideSidebar && isLeftSidebarRevealed) ? "left-sidebar-container--revealed" : ""
-          ].filter(Boolean).join(" ")}
-          onMouseEnter={state.autoHideSidebar ? handleLeftSidebarMouseEnter : undefined}
-          onMouseLeave={state.autoHideSidebar ? handleLeftSidebarMouseLeave : undefined}
-        >
-          <WorkspaceBar />
-          {state.activeWorkspaceId && <SessionPanel />}
-        </div>
+        {/* Left Sidebar Container */}
+        {state.workspaces.length > 0 && (
+          <div
+            className={[
+              "left-sidebar-container",
+              state.autoHideSidebar ? "left-sidebar-container--auto-hide" : "",
+              (state.autoHideSidebar && isLeftSidebarRevealed) ? "left-sidebar-container--revealed" : ""
+            ].filter(Boolean).join(" ")}
+            onMouseEnter={state.autoHideSidebar ? handleLeftSidebarMouseEnter : undefined}
+            onMouseLeave={state.autoHideSidebar ? handleLeftSidebarMouseLeave : undefined}
+          >
+            {state.autoHideSidebar && <div className="left-sidebar-handle">
+              <div className="left-sidebar-handle-indicator" />
+            </div>}
+            <LeftSidebar />
+          </div>
+        )}
 
         {/* Column 3: Main Area */}
         {state.activeWorkspaceId ? (
@@ -512,6 +603,217 @@ export function App() {
         onCancel={handleDialogCancel}
       />
 
+      {missingWorkspace && (
+        <div className="modal-backdrop" style={{ zIndex: 99999 }}>
+          <div className="edit-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px', width: '100%' }}>
+            <div className="edit-modal__header">
+              <span className="edit-modal__title" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-accent-amber)' }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/>
+                  <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+                Workspace Folder Missing
+              </span>
+            </div>
+
+            <div className="edit-modal__body" style={{ color: 'var(--color-body)', fontSize: 'var(--text-body-sm)', lineHeight: '1.6', paddingBottom: 'var(--space-lg)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <p>
+                The folder for the workspace <span style={{ fontWeight: 'bold', color: '#ffffff' }}>"{missingWorkspace.name}"</span> is no longer present on disk or has been deleted:
+              </p>
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.04)',
+                border: '1px solid var(--color-hairline)',
+                borderRadius: 'var(--radius-md)',
+                padding: '10px 14px',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '11px',
+                wordBreak: 'break-all',
+                color: 'var(--color-mute)'
+              }}>
+                {missingWorkspace.path}
+              </div>
+              <p>
+                Would you like to remove this workspace from the list or locate the folder's new path?
+              </p>
+            </div>
+
+            <div className="edit-modal__footer" style={{ gap: 'var(--space-sm)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <button className="edit-modal__btn edit-modal__btn--discard" onClick={handleRemoveMissingWorkspace} style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#f87171', whiteSpace: 'nowrap' }}>
+                Remove Workspace
+              </button>
+              <button className="edit-modal__btn edit-modal__btn--save" onClick={handleLocateMissingWorkspace} style={{ whiteSpace: 'nowrap' }}>
+                Locate Folder
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <GlobalTooltip />
+    </div>
+  );
+}
+
+function GlobalTooltip() {
+  const [state, setState] = useState<{ text: string; rect: DOMRect; target: HTMLElement } | null>(null);
+  const [isVisible, setIsVisible] = useState(false);
+  const activeTargetRef = useRef<HTMLElement | null>(null);
+  const showTimeoutRef = useRef<any>(null);
+
+  useEffect(() => {
+    const handleMouseOver = (e: MouseEvent) => {
+      let target = e.target as HTMLElement | null;
+      while (target && target !== document.body && target !== document.documentElement) {
+        if (target.hasAttribute('title') || target.hasAttribute('data-tooltip')) {
+          break;
+        }
+        target = target.parentElement;
+      }
+
+      if (target) {
+        let text = target.getAttribute('data-tooltip') || '';
+        if (target.hasAttribute('title')) {
+          const titleText = target.getAttribute('title') || '';
+          if (titleText) {
+            text = titleText;
+            target.setAttribute('data-tooltip', titleText);
+            target.removeAttribute('title');
+          }
+        }
+
+        if (text.trim()) {
+          if (showTimeoutRef.current) {
+            clearTimeout(showTimeoutRef.current);
+          }
+          activeTargetRef.current = target;
+          
+          // Use 'isVisible' state from ref/closure to check if we can update instantly
+          // Note: Since activeTargetRef is set, we check if another tooltip is already active
+          const isCurrentlyVisible = document.querySelector('.custom-tooltip--visible') !== null;
+
+          if (isCurrentlyVisible) {
+            setState({
+              text,
+              rect: target.getBoundingClientRect(),
+              target,
+            });
+            setIsVisible(true);
+          } else {
+            showTimeoutRef.current = setTimeout(() => {
+              setState({
+                text,
+                rect: target.getBoundingClientRect(),
+                target,
+              });
+              setIsVisible(true);
+            }, 400); // 400ms delay
+          }
+        }
+      }
+    };
+
+    const handleMouseOut = (e: MouseEvent) => {
+      if (showTimeoutRef.current) {
+        clearTimeout(showTimeoutRef.current);
+      }
+
+      let target = e.target as HTMLElement | null;
+      while (target && target !== document.body && target !== document.documentElement) {
+        if (target.hasAttribute('data-tooltip')) {
+          break;
+        }
+        target = target.parentElement;
+      }
+
+      if (target && activeTargetRef.current === target) {
+        const text = target.getAttribute('data-tooltip');
+        if (text) {
+          target.setAttribute('title', text);
+        }
+        activeTargetRef.current = null;
+        setIsVisible(false);
+      }
+    };
+
+    document.addEventListener('mouseover', handleMouseOver);
+    document.addEventListener('mouseout', handleMouseOut);
+
+    return () => {
+      if (showTimeoutRef.current) {
+        clearTimeout(showTimeoutRef.current);
+      }
+      document.removeEventListener('mouseover', handleMouseOver);
+      document.removeEventListener('mouseout', handleMouseOut);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isVisible) {
+      const timer = setTimeout(() => {
+        setState(null);
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [isVisible]);
+
+  useEffect(() => {
+    if (state?.target) {
+      const checkMounted = setInterval(() => {
+        if (!state.target.isConnected) {
+          setIsVisible(false);
+        }
+      }, 100);
+      return () => clearInterval(checkMounted);
+    }
+  }, [state]);
+
+  if (!state) return null;
+
+  return (
+    <TooltipPortal text={state.text} rect={state.rect} isVisible={isVisible} />
+  );
+}
+
+function TooltipPortal({ text, rect, isVisible }: { text: string; rect: DOMRect; isVisible: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<{ left: number; top: number; ready: boolean }>({ left: 0, top: 0, ready: false });
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const tooltipRect = ref.current.getBoundingClientRect();
+    const gap = 6;
+    
+    let left = rect.left + rect.width / 2 - tooltipRect.width / 2;
+    let top = rect.top - tooltipRect.height - gap;
+    
+    if (top < 8) {
+      top = rect.bottom + gap;
+    }
+    
+    const viewportWidth = window.innerWidth;
+    if (left < 8) {
+      left = 8;
+    } else if (left + tooltipRect.width > viewportWidth - 8) {
+      left = viewportWidth - tooltipRect.width - 8;
+    }
+    
+    setCoords({ left, top, ready: true });
+  }, [rect]);
+
+  return (
+    <div
+      ref={ref}
+      className={`custom-tooltip ${isVisible && coords.ready ? 'custom-tooltip--visible' : ''}`}
+      style={{
+        position: 'fixed',
+        left: `${coords.left}px`,
+        top: `${coords.top}px`,
+        visibility: coords.ready ? 'visible' : 'hidden',
+        opacity: coords.ready && isVisible ? 1 : 0,
+      }}
+    >
+      {text}
     </div>
   );
 }
