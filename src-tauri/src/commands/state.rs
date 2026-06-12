@@ -108,6 +108,101 @@ pub struct AppState {
 }
 
 
+use std::path::Path;
+
+fn resolve_renamed_dir(old_path_str: &str) -> Option<(String, String)> {
+    let old_path = Path::new(old_path_str);
+    if old_path.is_dir() {
+        return None;
+    }
+
+    // Get parent directory
+    let parent = old_path.parent()?;
+    if !parent.is_dir() {
+        return None;
+    }
+
+    // Get the name of the old directory
+    let old_name = old_path.file_name()?.to_string_lossy().to_string();
+    let old_name_lower = old_name.to_lowercase();
+
+    // Scan parent directory for subdirectories
+    let entries = fs::read_dir(parent).ok()?;
+    let mut best_match: Option<(PathBuf, String, usize)> = None;
+
+    for entry in entries {
+        if let Ok(entry) = entry {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = match path.file_name() {
+                    Some(n) => n.to_string_lossy().to_string(),
+                    None => continue,
+                };
+                let name_lower = name.to_lowercase();
+                
+                // Skip common system or development folders to avoid false positives
+                if name_lower == ".git" || name_lower == "target" || name_lower == "node_modules" || name_lower == ".ds_store" {
+                    continue;
+                }
+
+                // Case 1: Exact match (case differences on a case-sensitive filesystem)
+                if name_lower == old_name_lower {
+                    return Some((path.to_string_lossy().to_string(), name));
+                }
+
+                // Case 2: Substring matches (e.g. "Fit Code" -> "Fit", or "Fit" -> "Fit Code")
+                if old_name_lower.contains(&name_lower) || name_lower.contains(&old_name_lower) {
+                    let score = if old_name_lower.contains(&name_lower) {
+                        name_lower.len()
+                    } else {
+                        old_name_lower.len()
+                    };
+                    if best_match.is_none() || score > best_match.as_ref().unwrap().2 {
+                        best_match = Some((path, name, score));
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some((matched_path, matched_name, _)) = best_match {
+        Some((matched_path.to_string_lossy().to_string(), matched_name))
+    } else {
+        None
+    }
+}
+
+fn update_path(path: &str, old_prefix: &str, new_prefix: &str) -> String {
+    let path_norm = path.replace('\\', "/");
+    let old_prefix_norm = old_prefix.replace('\\', "/");
+    let new_prefix_norm = new_prefix.replace('\\', "/");
+
+    if path_norm.starts_with(&old_prefix_norm) {
+        let suffix = &path_norm[old_prefix_norm.len()..];
+        let joined = format!("{}{}", new_prefix_norm, suffix);
+        if new_prefix.contains('\\') {
+            joined.replace('/', "\\")
+        } else {
+            joined
+        }
+    } else {
+        path.to_string()
+    }
+}
+
+fn update_panel_node_cwd(node: &mut PanelNode, old_prefix: &str, new_prefix: &str) {
+    match node {
+        PanelNode::Terminal(term) => {
+            term.cwd = update_path(&term.cwd, old_prefix, new_prefix);
+        }
+        PanelNode::Split(split) => {
+            for child in &mut split.children {
+                update_panel_node_cwd(child, old_prefix, new_prefix);
+            }
+        }
+    }
+}
+
 /// Get the path to the state file.
 fn state_path() -> PathBuf {
     let app_data = dirs::data_dir().unwrap_or_else(|| PathBuf::from("."));
@@ -116,14 +211,66 @@ fn state_path() -> PathBuf {
     fit_dir.join("state.json")
 }
 
+/// Resolve a workspace path if the folder was renamed.
+#[tauri::command]
+pub fn resolve_workspace_path(path: String) -> Option<(String, String)> {
+    resolve_renamed_dir(&path)
+}
+
 /// Load state from disk. Returns default state if file doesn't exist.
 #[tauri::command]
 pub fn load_state() -> AppState {
     let path = state_path();
-    match fs::read_to_string(&path) {
+    let mut state = match fs::read_to_string(&path) {
         Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
         Err(_) => AppState::default(),
+    };
+
+    // Auto-resolve renamed workspaces
+    let mut modified = false;
+    let mut resolved_changes = Vec::new();
+
+    for ws in &mut state.workspaces {
+        if let Some((new_path, new_name)) = resolve_renamed_dir(&ws.path) {
+            resolved_changes.push((ws.id.clone(), ws.path.clone(), new_path.clone(), new_name.clone()));
+            ws.path = new_path;
+            ws.name = new_name;
+            modified = true;
+        }
     }
+
+    if modified {
+        for (ws_id, old_path, new_path, _) in resolved_changes {
+            // Update open tabs
+            for tab in &mut state.open_tabs {
+                if let Some(ref tab_ws_id) = tab.workspace_id {
+                    if tab_ws_id == &ws_id {
+                        if let Some(ref mut file_path) = tab.file_path {
+                            *file_path = update_path(file_path, &old_path, &new_path);
+                        }
+                    }
+                }
+            }
+
+            // Update sessions
+            for session in &mut state.sessions {
+                if session.workspace_id == ws_id {
+                    if let Some(ref mut terminals) = session.terminals {
+                        for term in terminals {
+                            term.cwd = update_path(&term.cwd, &old_path, &new_path);
+                        }
+                    }
+                    if let Some(ref mut root_panel) = session.root_panel {
+                        update_panel_node_cwd(root_panel, &old_path, &new_path);
+                    }
+                }
+            }
+        }
+
+        let _ = save_state(state.clone());
+    }
+
+    state
 }
 
 /// Save state to disk.
