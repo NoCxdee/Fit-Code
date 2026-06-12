@@ -653,187 +653,7 @@ export function GitPanel() {
             </svg>
           </button>
           
-          <div className="git-menu-container" ref={menuRef}>
-            <button className="git-panel__header-btn" onClick={() => setMenuOpen(!menuOpen)} title="Git Actions">
-              <MoreHorizontal size={14} />
-            </button>
-            {menuOpen && (
-              <div className="git-dropdown-menu">
-                <button className="git-dropdown-item" onClick={() => { setMenuOpen(false); handlePull(); }}>
-                  Pull
-                </button>
-                <button className="git-dropdown-item" onClick={() => { setMenuOpen(false); handlePush(); }}>
-                  Push
-                </button>
-                <button className="git-dropdown-item" onClick={() => { setMenuOpen(false); setDialogType('clone'); }}>
-                  Clone
-                </button>
-                <button className="git-dropdown-item" onClick={() => { setMenuOpen(false); setDialogType('checkout'); }}>
-                  Checkout to...
-                </button>
-                <button className="git-dropdown-item" onClick={() => { setMenuOpen(false); handleFetch(); }}>
-                  Fetch
-                </button>
-                
-                <div className="git-dropdown-divider" />
-                
-                <div 
-                  className="git-dropdown-item"
-                  onMouseEnter={() => setActiveSubmenu('commit')}
-                  onMouseLeave={() => setActiveSubmenu(null)}
-                  style={{ position: 'relative' }}
-                >
-                  <span>Commit</span>
-                  <span className="git-dropdown-item__arrow"><ChevronRight size={12} /></span>
-                  {activeSubmenu === 'commit' && (
-                    <div className="git-dropdown-submenu">
-                      <button className="git-dropdown-item" onClick={() => triggerCommitAction('staged')}>
-                        Commit Staged
-                      </button>
-                      <button className="git-dropdown-item" onClick={() => triggerCommitAction('all')}>
-                        Commit All
-                      </button>
-                      <button className="git-dropdown-item" onClick={() => triggerCommitAction('amend-staged')}>
-                        Commit Staged (Amend)
-                      </button>
-                      <button className="git-dropdown-item" onClick={() => triggerCommitAction('amend-all')}>
-                        Commit All (Amend)
-                      </button>
-                    </div>
-                  )}
-                </div>
 
-                <div 
-                  className="git-dropdown-item"
-                  onMouseEnter={() => setActiveSubmenu('changes')}
-                  onMouseLeave={() => setActiveSubmenu(null)}
-                  style={{ position: 'relative' }}
-                >
-                  <span>Changes</span>
-                  <span className="git-dropdown-item__arrow"><ChevronRight size={12} /></span>
-                  {activeSubmenu === 'changes' && (
-                    <div className="git-dropdown-submenu">
-                      <button className="git-dropdown-item" onClick={() => { setMenuOpen(false); handleStageAll(); }}>
-                        Stage All
-                      </button>
-                      <button className="git-dropdown-item" onClick={() => { setMenuOpen(false); handleUnstageAll(); }}>
-                        Unstage All
-                      </button>
-                      <button className="git-dropdown-item" onClick={handleDiscardAll}>
-                        Discard All
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <div 
-                  className="git-dropdown-item"
-                  onMouseEnter={() => setActiveSubmenu('pull-push')}
-                  onMouseLeave={() => setActiveSubmenu(null)}
-                  style={{ position: 'relative' }}
-                >
-                  <span>Pull, Push</span>
-                  <span className="git-dropdown-item__arrow"><ChevronRight size={12} /></span>
-                  {activeSubmenu === 'pull-push' && (
-                    <div className="git-dropdown-submenu">
-                      <button className="git-dropdown-item" onClick={() => { setMenuOpen(false); handlePull(); }}>
-                        Pull
-                      </button>
-                      <button className="git-dropdown-item" onClick={() => { setMenuOpen(false); handlePush(); }}>
-                        Push
-                      </button>
-                      <button className="git-dropdown-item" onClick={handleSync}>
-                        Sync
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <div 
-                  className="git-dropdown-item"
-                  onMouseEnter={() => setActiveSubmenu('branch')}
-                  onMouseLeave={() => setActiveSubmenu(null)}
-                  style={{ position: 'relative' }}
-                >
-                  <span>Branch</span>
-                  <span className="git-dropdown-item__arrow"><ChevronRight size={12} /></span>
-                  {activeSubmenu === 'branch' && (
-                    <div className="git-dropdown-submenu">
-                      <button className="git-dropdown-item" onClick={() => { setMenuOpen(false); setDialogType('branch-create'); }}>
-                        Create Branch...
-                      </button>
-                      <button className="git-dropdown-item" onClick={() => { setMenuOpen(false); setDialogType('branch-delete'); }}>
-                        Delete Branch...
-                      </button>
-                      <button className="git-dropdown-item" onClick={() => { setMenuOpen(false); setDialogType('branch-switch'); }}>
-                        Switch to Branch...
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <div 
-                  className="git-dropdown-item"
-                  onMouseEnter={() => setActiveSubmenu('remote')}
-                  onMouseLeave={() => setActiveSubmenu(null)}
-                  style={{ position: 'relative' }}
-                >
-                  <span>Remote</span>
-                  <span className="git-dropdown-item__arrow"><ChevronRight size={12} /></span>
-                  {activeSubmenu === 'remote' && (
-                    <div className="git-dropdown-submenu">
-                      <button className="git-dropdown-item" onClick={() => { setMenuOpen(false); setDialogType('remote-add'); }}>
-                        Add Remote...
-                      </button>
-                      <button className="git-dropdown-item" onClick={() => { setMenuOpen(false); setDialogType('remote-remove'); }}>
-                        Remove Remote...
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <div 
-                  className="git-dropdown-item"
-                  onMouseEnter={() => setActiveSubmenu('stash')}
-                  onMouseLeave={() => setActiveSubmenu(null)}
-                  style={{ position: 'relative' }}
-                >
-                  <span>Stash</span>
-                  <span className="git-dropdown-item__arrow"><ChevronRight size={12} /></span>
-                  {activeSubmenu === 'stash' && (
-                    <div className="git-dropdown-submenu">
-                      <button className="git-dropdown-item" onClick={() => { setMenuOpen(false); setDialogType('stash-push'); }}>
-                        Stash Changes...
-                      </button>
-                      <button className="git-dropdown-item" onClick={() => handleGitActionNoInput('pop-stash', ['stash', 'pop'])}>
-                        Pop Stash
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <div 
-                  className="git-dropdown-item"
-                  onMouseEnter={() => setActiveSubmenu('tags')}
-                  onMouseLeave={() => setActiveSubmenu(null)}
-                  style={{ position: 'relative' }}
-                >
-                  <span>Tags</span>
-                  <span className="git-dropdown-item__arrow"><ChevronRight size={12} /></span>
-                  {activeSubmenu === 'tags' && (
-                    <div className="git-dropdown-submenu">
-                      <button className="git-dropdown-item" onClick={() => { setMenuOpen(false); setDialogType('tag-create'); }}>
-                        Create Tag...
-                      </button>
-                      <button className="git-dropdown-item" onClick={() => { setMenuOpen(false); setDialogType('tag-delete'); }}>
-                        Delete Tag...
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
@@ -999,8 +819,9 @@ export function GitPanel() {
       </div>
 
       {dialogType && (
-        <div className="git-modal">
-          <form className="git-modal__content" onSubmit={handleDialogSubmit}>
+        <div className="git-modal-overlay" onClick={() => { setDialogType(null); setDialogInput1(''); setDialogInput2(''); }}>
+          <div className="git-modal" onClick={e => e.stopPropagation()}>
+            <form className="git-modal__content" onSubmit={handleDialogSubmit}>
             <div className="git-modal__header">
               <span className="git-modal__title">
                 {dialogType === 'clone' && "Clone Repository"}
@@ -1224,6 +1045,7 @@ export function GitPanel() {
             </div>
           </form>
         </div>
+      </div>
       )}
     </div>
   );
