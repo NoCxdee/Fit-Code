@@ -140,6 +140,7 @@ pub fn run() {
             commands::filesystem::search_files,
             commands::filesystem::rename_item,
             commands::filesystem::delete_item,
+            commands::filesystem::check_directory_exists,
             // PTY
             commands::pty::pty_spawn,
             commands::pty::pty_write,
@@ -153,6 +154,7 @@ pub fn run() {
             // State
             commands::state::load_state,
             commands::state::save_state,
+            commands::state::resolve_workspace_path,
             // Git
             commands::git::git_status,
             commands::git::git_stage,
